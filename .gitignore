@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite
+*.db
+node_modules/
+dist/
+build/
+.coverage
+.pytest_cache/
+.DS_Store
+
