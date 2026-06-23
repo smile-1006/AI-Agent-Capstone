@@ -1,0 +1,47 @@
+"""Runtime bootstrap helpers."""
+
+from __future__ import annotations
+
+import os
+
+from app.settings import Settings
+
+
+
+def build_settings() -> Settings:
+    """Build Settings safely.
+
+    During local dev and unit tests, .env may not be present.
+    We provide a sane fallback for jwt_secret so imports don't fail.
+    """
+
+    raw_env = dict(os.environ)
+
+    # Ensure required secrets exist for local runs.
+    jwt_secret = raw_env.get("JWT_SECRET") or "dev-only-change-me"
+
+    # Build a dict with correct field names expected by Settings.
+    # pydantic-settings can parse types, but passing every env var by name
+    # is risky; we only pass known fields.
+    return Settings(
+        app_env=raw_env.get("APP_ENV", "development"),
+        port=int(raw_env.get("PORT", "8000")),
+        jwt_secret=jwt_secret,
+        jwt_algorithm=raw_env.get("JWT_ALGORITHM", "HS256"),
+        access_token_expires_minutes=int(raw_env.get("ACCESS_TOKEN_EXPIRES_MINUTES", "60")),
+        rate_limit_per_minute=int(raw_env.get("RATE_LIMIT_PER_MINUTE", "120")),
+        database_url=raw_env.get("DATABASE_URL", "sqlite:///./database/sqlite.db"),
+        log_level=raw_env.get("LOG_LEVEL", "INFO"),
+        embeddings_dim=int(raw_env.get("EMBEDDINGS_DIM", str(384))),
+        embeddings_top_k=int(raw_env.get("EMBEDDINGS_TOP_K", str(5))),
+        web_search_api_url=raw_env.get("WEB_SEARCH_API_URL", ""),
+        weather_api_url=raw_env.get("WEATHER_API_URL", ""),
+        smtp_host=raw_env.get("SMTP_HOST", ""),
+        smtp_port=int(raw_env.get("SMTP_PORT", "587")),
+        smtp_user=raw_env.get("SMTP_USER", ""),
+        smtp_password=raw_env.get("SMTP_PASSWORD", ""),
+        smtp_from=raw_env.get("SMTP_FROM", ""),
+    )
+
+
+
