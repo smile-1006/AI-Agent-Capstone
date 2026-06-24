@@ -20,5 +20,6 @@ services:
       - ./frontend:/app
     ports:
       - "5173:5173"
-    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+    command: ["sh", "-lc", "rm -rf node_modules package-lock.json && npm install && npm run dev -- --host 0.0.0.0 --port 5173"]
+
 
