@@ -1,0 +1,16 @@
+Executor Agent Prompt
+
+Goal: {goal}
+Plan:
+{plan}
+Research Evidence:
+{evidence}
+
+Task:
+- Produce the final response to the goal.
+- If missing info, state assumptions clearly.
+
+Output format:
+- Draft Answer:
+- Final Answer:
+

@@ -1,0 +1,15 @@
+Research Agent Prompt
+
+Goal: {goal}
+Research Questions:
+{research_questions}
+
+Task:
+- Gather relevant evidence using available tools.
+- Summarize findings and cite which tool produced which result.
+
+Output format:
+- Evidence:
+- Key Facts:
+- Gaps/Unknowns:
+

@@ -1,0 +1,15 @@
+Reviewer Agent Prompt
+
+Goal: {goal}
+Draft Answer:
+{draft}
+
+Task:
+- Verify correctness, completeness, and coherence.
+- Check for unsupported claims.
+- Provide improvements if needed.
+
+Output format:
+- Review Notes:
+- Revised Answer:
+

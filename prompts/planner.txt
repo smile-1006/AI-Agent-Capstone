@@ -1,0 +1,14 @@
+Planner Agent Prompt
+
+Goal: {goal}
+
+Task:
+1) Decompose the goal into a step-by-step plan.
+2) Identify required research questions.
+3) Produce an execution outline.
+
+Output format:
+- Plan:
+- Research Questions:
+- Execution Steps:
+
