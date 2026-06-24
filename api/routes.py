@@ -96,7 +96,7 @@ class ExecuteRequest(BaseModel):
 
 
 @router.post("/execute")
-def execute(
+async def execute(
     payload: ExecuteRequest,
 ):
     """Run the multi-agent pipeline.
@@ -109,14 +109,6 @@ def execute(
     from api.execution import ExecuteUseCase
 
     use_case = ExecuteUseCase()
-    # Execute synchronously from a sync route handler by awaiting via loop-less pattern.
-    # FastAPI will handle this as a normal function; ExecuteUseCase is async callable.
-    # To keep this route safe, we create a minimal asyncio run.
-    import asyncio
-
-    async def _run() -> dict[str, Any]:
-        return await use_case(goal=payload.goal, user=None, context={})
-
-    return asyncio.run(_run())
+    return await use_case(goal=payload.goal, user=None, context={})
 
 

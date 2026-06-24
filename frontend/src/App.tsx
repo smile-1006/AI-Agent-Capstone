@@ -23,7 +23,7 @@ type ChatMessage = {
   content: string;
 };
 
-const API_BASE = '';
+const API_BASE = 'http://localhost:8000';
 
 function uid(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
