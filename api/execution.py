@@ -60,7 +60,19 @@ class ExecuteUseCase:
         # Store user's turn in memory (deterministic local memory)
         await self._memory.add_turn(request_id=request_id, turn={"role": "user", "content": goal.strip()})
 
-        output = await self._coordinator.run(workflow_input)
+        try:
+            output = await self._coordinator.run(workflow_input)
+        except Exception as e:
+            # Surface LLM/provider failures to the frontend.
+            return {
+                "request_id": request_id,
+                "route": None,
+                "plan": None,
+                "research": None,
+                "draft": None,
+                "final": None,
+                "llm_error": str(e),
+            }
 
         await self._memory.add_turn(
             request_id=request_id,
@@ -75,4 +87,5 @@ class ExecuteUseCase:
             "draft": output.draft,
             "final": output.final,
         }
+
 

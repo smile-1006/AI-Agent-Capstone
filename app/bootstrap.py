@@ -41,7 +41,23 @@ def build_settings() -> Settings:
         smtp_user=raw_env.get("SMTP_USER", ""),
         smtp_password=raw_env.get("SMTP_PASSWORD", ""),
         smtp_from=raw_env.get("SMTP_FROM", ""),
+
+        # LLM
+        llm_provider=raw_env.get("LLM_PROVIDER", "auto"),
+
+
+        openrouter_api_key=raw_env.get("OPENROUTER_API_KEY", ""),
+        openrouter_base_url=raw_env.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+        openrouter_model=raw_env.get("OPENROUTER_MODEL", "openai/gpt-4o-mini"),
+
+        nvidia_api_key=raw_env.get("NVIDIA_API_KEY", ""),
+        nvidia_base_url=raw_env.get("NVIDIA_BASE_URL", "https://api.nvidia.com/v1"),
+        nvidia_model=raw_env.get("NVIDIA_MODEL", "nvidia/llama-3.1-8b-instruct"),
+        nvidia_chat_completions_path=raw_env.get(
+            "NVIDIA_CHAT_COMPLETIONS_PATH", "chat/completions"
+        ),
     )
+
 
 
 
