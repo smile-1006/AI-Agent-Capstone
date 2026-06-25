@@ -45,6 +45,24 @@ class Settings(BaseSettings):
     web_search_api_url: str = ""
     weather_api_url: str = ""
 
+    # -------- LLM Providers (OpenRouter + NVIDIA) --------
+    # If a provider is not configured, the system falls back to deterministic agents.
+
+    llm_provider: str = Field(default="auto")
+
+    # OpenRouter
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_model: str = "openai/gpt-4o-mini"
+
+    # NVIDIA (endpoint/path may vary by product)
+    nvidia_api_key: str = ""
+    nvidia_base_url: str = "https://api.nvidia.com/v1"
+    nvidia_model: str = "nvidia/llama-3.1-8b-instruct"
+
+    # NVIDIA chat completions path (optional)
+    nvidia_chat_completions_path: str = "chat/completions"
+
     # Email (optional)
     smtp_host: str = ""
     smtp_port: int = 587
