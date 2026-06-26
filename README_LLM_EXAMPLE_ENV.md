@@ -22,7 +22,7 @@ LLM_PROVIDER=auto
 ## OpenRouter
 
 ```env
-OPENROUTER_API_KEY=.....
+OPENROUTER_API_KEY=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
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 # Example model id:
 OPENROUTER_MODEL=openai/gpt-4o-mini
