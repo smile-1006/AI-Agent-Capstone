@@ -33,9 +33,111 @@ class ResearchAgent:
     def __init__(self, web_search_tool: WebSearchTool | None = None) -> None:
         self._web_search_tool = web_search_tool
 
+    def _extract_location_from_goal(self, goal: str) -> str | None:
+        """
+        Heuristics:
+        - "weather forecast for tomorrow in Chennai"
+        - "tomorrow weather in London"
+        - "weather in Paris"
+        """
+        import re
+
+        if not isinstance(goal, str) or not goal.strip():
+            return None
+
+        m = re.search(r"\b(in|at)\s+([A-Za-z][A-Za-z\s\-\']{1,60})\s*$", goal.strip(), flags=re.IGNORECASE)
+        if not m:
+            return None
+
+        loc = m.group(2).strip()
+        return loc if loc else None
+
     async def research(self, plan: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
         """Gather evidence for the provided plan."""
+        goal = plan.get("goal") or context.get("goal") or ""
 
+        # ---- Weather path: call local MCP tool directly (no MCP transport needed) ----
+        g = str(goal).lower()
+        if "weather" in g or "forecast" in g:
+            location = context.get("location") or self._extract_location_from_goal(str(goal))
+            if not location:
+                # Default to Chennai so the frontend goal text works out of the box.
+                location = "Chennai"
+
+
+            try:
+                from mcp.tools import tool_weather
+
+                tool_result = await tool_weather(ctx=context, location=location)
+
+                if "error" in tool_result:
+                    err = tool_result["error"]
+                    return {
+                        "evidence": [
+                            {
+                                "query": goal,
+                                "results": [
+                                    {
+                                        "title": "Weather provider error",
+                                        "snippet": f"{err.get('type')}: {err.get('message')}",
+                                        "url": None,
+                                    }
+                                ],
+                                "fallback": True,
+                            }
+                        ],
+                        "count": 1,
+                    }
+
+                forecast = tool_result.get("forecast") or {}
+                conditions = forecast.get("conditions")
+                tmin = forecast.get("temperature_min_c")
+                tmax = forecast.get("temperature_max_c")
+                humidity = forecast.get("humidity_percent")
+                wind = forecast.get("wind_kph")
+                source = forecast.get("source")
+
+                snippet = (
+                    f"{tool_result.get('location')} tomorrow: "
+                    f"{conditions}, temp {tmin}..{tmax}°C, humidity {humidity}%, wind {wind} kph. "
+                    f"(source: {source})"
+                )
+
+                return {
+                    "evidence": [
+                        {
+                            "query": f"weather:{location}",
+                            "results": [
+                                {
+                                    "title": "Tomorrow forecast (OpenWeatherMap)",
+                                    "snippet": snippet,
+                                    "url": None,
+                                }
+                            ],
+                            "fallback": False,
+                        }
+                    ],
+                    "count": 1,
+                }
+            except Exception as e:
+                return {
+                    "evidence": [
+                        {
+                            "query": goal,
+                            "results": [
+                                {
+                                    "title": "Weather tool execution failed",
+                                    "snippet": str(e),
+                                    "url": None,
+                                }
+                            ],
+                            "fallback": True,
+                        }
+                    ],
+                    "count": 1,
+                }
+
+        # ---- Default path: original web-search/offline fallback evidence ----
         sub_queries: list[str] = plan.get("sub_queries") or []
         if not isinstance(sub_queries, list):
             raise ValueError("plan.sub_queries must be a list")
@@ -58,7 +160,6 @@ class ResearchAgent:
                 except Exception as e:
                     logger.warning("Web research failed; falling back. err=%s", e)
 
-            # Offline fallback: provide a deterministic structured response
             evidence.append(
                 {
                     "query": query,

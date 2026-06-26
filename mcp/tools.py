@@ -91,35 +91,192 @@ async def tool_web_search(ctx: Any, query: str, max_results: int = 3) -> dict[st
 
 
 async def tool_weather(ctx: Any, location: str) -> dict[str, Any]:
-    """Local-safe weather tool.
+    """Weather tool using OpenWeatherMap.
 
-    Without external APIs, return a deterministic placeholder-free response
-    derived from location hash.
+    Returns a deterministic structure including "tomorrow" forecast extracted
+    from the OpenWeatherMap "daily forecast" endpoint.
+
+    If OPENWEATHER_API_KEY is missing or the request fails, this tool returns
+    an error payload (it will NOT silently return offline deterministic data).
     """
 
-    import hashlib
+    import os
+    import re
+    import math
+    from datetime import datetime, timezone
+
+    import httpx
 
     if not isinstance(location, str) or not location.strip():
         raise ValueError("location must be a non-empty string")
 
-    h = hashlib.sha256(location.strip().lower().encode("utf-8")).hexdigest()
-    # Derive plausible values deterministically.
-    temp_c = int(h[:2], 16) - 10  # -10..245 -> clamp to -10..40
-    temp_c = max(-10, min(40, temp_c))
-    humidity = int(h[2:4], 16)  # 0..255 -> 20..95
-    humidity = max(20, min(95, humidity))
-    wind_kph = int(h[4:6], 16) % 60
+    api_key = os.environ.get("OPENWEATHER_API_KEY", "").strip()
+    if not api_key:
+        return {
+            "location": location,
+            "error": {
+                "type": "missing_api_key",
+                "message": "OPENWEATHER_API_KEY is not set",
+            },
+        }
 
-    return {
-        "location": location,
-        "forecast": {
-            "temperature_c": temp_c,
-            "humidity_percent": humidity,
-            "wind_kph": wind_kph,
-            "conditions": "partly_cloudy",
-            "note": "offline-deterministic (no external API configured)",
-        },
-    }
+    geocode_url = os.environ.get(
+        "OPENWEATHER_GEOCODE_URL", "https://api.openweathermap.org/geo/1.0/direct"
+    ).strip()
+    forecast_url = os.environ.get(
+        "WEATHER_API_URL", "https://api.openweathermap.org/data/2.5/forecast/daily"
+    ).strip()
+
+    loc = location.strip()
+    # Support "lat,lon"
+    lat_lon_match = re.match(
+        r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$", loc
+    )
+    lat: float | None = None
+    lon: float | None = None
+    resolved_name: str = loc
+
+    async def _call_json(url: str, params: dict[str, Any]) -> Any:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(url, params=params)
+            if resp.status_code >= 400:
+                raise RuntimeError(
+                    f"OpenWeatherMap request failed: {resp.status_code} {resp.text[:500]}"
+                )
+            return resp.json()
+
+    try:
+        if lat_lon_match:
+            lat = float(lat_lon_match.group(1))
+            lon = float(lat_lon_match.group(2))
+        else:
+            geocode = await _call_json(
+                geocode_url,
+                {"q": loc, "limit": 1, "appid": api_key},
+            )
+            if not isinstance(geocode, list) or not geocode:
+                return {
+                    "location": location,
+                    "error": {
+                        "type": "geocode_failed",
+                        "message": "No geocoding result found for the provided location",
+                    },
+                }
+            first = geocode[0]
+            lat = float(first["lat"])
+            lon = float(first["lon"])
+            resolved_name = first.get("name") or loc
+
+        # Daily endpoint is count-based (cnt). We ask for tomorrow plus today.
+        # We then choose "tomorrow" by date, using the forecast item's dt.
+        # Units: metric (°C), wind km/h (OpenWeather metric default).
+        daily = await _call_json(
+            forecast_url,
+            {
+                "lat": lat,
+                "lon": lon,
+                "cnt": 2,
+                "units": "metric",
+                "appid": api_key,
+            },
+        )
+
+        list_days = daily.get("list", [])
+        if not isinstance(list_days, list) or len(list_days) < 1:
+            return {
+                "location": location,
+                "error": {
+                    "type": "forecast_parse_failed",
+                    "message": "Unexpected forecast response shape (missing list)",
+                },
+            }
+
+        tomorrow_utc = datetime.now(timezone.utc).date().fromtimestamp(
+            datetime.now(timezone.utc).timestamp() + 24 * 3600
+        )
+
+        chosen = None
+        for day in list_days:
+            try:
+                dt = int(day.get("dt"))
+                day_date = datetime.fromtimestamp(dt, tz=timezone.utc).date()
+                if day_date == tomorrow_utc:
+                    chosen = day
+                    break
+            except Exception:
+                continue
+
+        # Fallback: if response doesn't align to UTC date, take second item when available.
+        if chosen is None:
+            chosen = list_days[1] if len(list_days) >= 2 else list_days[0]
+
+        # Extract fields
+        temp_day = chosen.get("temp", {}).get("day")
+        temp_min = chosen.get("temp", {}).get("min")
+        temp_max = chosen.get("temp", {}).get("max")
+
+        humidity = chosen.get("humidity")
+        wind_speed = chosen.get("speed")  # metric typically km/h
+        weather0 = (chosen.get("weather") or [{}])[0]
+        weather_main = weather0.get("main") or "Unknown"
+
+        # Simple condition mapping
+        condition_map = {
+            "Clear": "clear_sky",
+            "Clouds": "cloudy",
+            "Rain": "rain",
+            "Drizzle": "drizzle",
+            "Thunderstorm": "thunderstorms",
+            "Snow": "snow",
+            "Mist": "mist",
+            "Smoke": "smoke",
+            "Haze": "haze",
+            "Fog": "fog",
+        }
+        conditions = condition_map.get(str(weather_main), str(weather_main).lower())
+
+        # Normalize temperatures to floats if possible
+        def _to_float(x: Any) -> float | None:
+            try:
+                if x is None:
+                    return None
+                v = float(x)
+                if math.isnan(v) or math.isinf(v):
+                    return None
+                return v
+            except Exception:
+                return None
+
+        tday = _to_float(temp_day)
+        tmin = _to_float(temp_min)
+        tmax = _to_float(temp_max)
+
+        temp_out: float | None = tday
+        if temp_out is None and tmin is not None and tmax is not None:
+            temp_out = (tmin + tmax) / 2.0
+
+        return {
+            "location": resolved_name,
+            "forecast": {
+                "day": "tomorrow",
+                "temperature_c": temp_out,
+                "temperature_min_c": tmin,
+                "temperature_max_c": tmax,
+                "humidity_percent": humidity if isinstance(humidity, (int, float)) else None,
+                "wind_kph": wind_speed if isinstance(wind_speed, (int, float)) else None,
+                "conditions": conditions,
+                "source": "openweathermap",
+                "note": "fetched from OpenWeatherMap (daily forecast)",
+            },
+        }
+    except Exception as e:
+        return {
+            "location": location,
+            "error": {
+                "type": "openweathermap_error",
+                "message": str(e),
+            },
+        }
 
 
 async def tool_pdf_read(ctx: Any, path: str, max_pages: int = 3) -> dict[str, Any]:
@@ -277,7 +434,7 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         "handler": tool_web_search,
     },
     "weather": {
-        "description": "Offline deterministic weather derived from location (no external API).",
+        "description": "OpenWeatherMap weather forecast tool (tomorrow). Accepts city name or 'lat,lon'.",
         "inputSchema": {
             "type": "object",
             "properties": {
