@@ -15,6 +15,17 @@ from agents.router import RouterAgent
 from workflows.workflow import WorkflowCoordinator, WorkflowInput
 
 
+class _LocalWebSearchTool:
+    """Adapter to expose `mcp.tools.tool_web_search` as a WebSearchTool for ResearchAgent."""
+
+    async def search(self, query: str, max_results: int = 5):
+        from mcp.tools import tool_web_search
+
+        res = await tool_web_search(ctx={}, query=query, max_results=max_results)
+        # Return the results list so ResearchAgent can consume them directly.
+        return res.get("results") if isinstance(res, dict) else res
+
+
 @dataclass(frozen=True)
 class ExecuteRequest:
     goal: str
@@ -29,7 +40,8 @@ class ExecuteUseCase:
     def __init__(self) -> None:
         self._router = RouterAgent()
         self._planner = PlannerAgent()
-        self._researcher = ResearchAgent(web_search_tool=None)
+        # Provide a local web-search tool adapter so ResearchAgent can call web search automatically.
+        self._researcher = ResearchAgent(web_search_tool=_LocalWebSearchTool())
         self._executor = ExecutorAgent()
         self._reviewer = ReviewerAgent()
         self._memory = MemoryAgent()
