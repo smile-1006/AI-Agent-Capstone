@@ -1,5 +1,7 @@
 fastapi
 uvicorn[standard]
+websockets
+wsproto
 pydantic
 pydantic-settings
 
@@ -18,6 +20,8 @@ pypdf
 Pillow
 feedparser
 python-multipart
+easyocr
+python-docx
 
 orjson
 tenacity
