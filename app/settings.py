@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     # External tool endpoints (optional)
     web_search_api_url: str = ""
     weather_api_url: str = ""
+    weather_provider: str = "auto"
+
+    # OpenWeather configuration
+    openweather_api_key: str = ""
+    openweather_geocode_url: str = "https://api.openweathermap.org/geo/1.0/direct"
+    openweather_forecast_url: str = "https://api.openweathermap.org/data/2.5/forecast/daily"
+
+    # Open-Meteo configuration (no key required)
+    open_meteo_base_url: str = "https://api.open-meteo.com/v1/forecast"
+    open_meteo_geocode_url: str = "https://geocoding-api.open-meteo.com/v1/search"
 
     # -------- LLM Providers (OpenRouter + NVIDIA) --------
     # If a provider is not configured, the system falls back to deterministic agents.
@@ -69,6 +79,11 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_from: str = ""
+
+    # Tools API key (optional) — simple shared secret for tooling endpoints
+    tools_api_key: str = ""
+    # Development flag to relax auth for tooling locally
+    debug: bool = True
 
 
 from app.bootstrap import build_settings
