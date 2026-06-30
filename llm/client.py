@@ -40,10 +40,7 @@ async def _post_chat_completions(
     async with httpx.AsyncClient(timeout=timeout_s) as client:
         resp = await client.post(url, headers=headers, json=payload)
         if resp.status_code >= 400:
-            text = await resp.text()
-            raise LLMError(f"LLM request failed: {resp.status_code} {text}")
-
-        data = resp.json()
+                text = resp.text
 
     # OpenAI-compatible
     try:
