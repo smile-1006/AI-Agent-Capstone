@@ -90,6 +90,54 @@ class PlannerAgent:
     Otherwise, it falls back to deterministic heuristics.
     """
 
+    def _extract_local_file_path(self, goal: str) -> str | None:
+        import re
+
+        if not isinstance(goal, str) or not goal.strip():
+            return None
+
+        file_match = re.search(
+            r'["\'](?P<path>(?:file://|[A-Za-z]:(?:\\|/)|(?:\.\.?[\\/]|/))[^"\']+\.(?:pdf|docx|txt|png|jpe?g|gif|bmp|webp|tiff))["\']',
+            goal,
+            flags=re.IGNORECASE,
+        )
+        if file_match:
+            return file_match.group('path').strip()
+
+        file_match = re.search(
+            r'(?P<path>(?:file://|[A-Za-z]:(?:\\|/)|(?:\.\.?[\\/]|/))[^\s,;]+\.(?:pdf|docx|txt|png|jpe?g|gif|bmp|webp|tiff))',
+            goal,
+            flags=re.IGNORECASE,
+        )
+        if file_match:
+            return file_match.group('path').strip()
+
+        return None
+
+    def _extract_search_query(self, goal: str) -> str | None:
+        import re
+
+        if not isinstance(goal, str) or not goal.strip():
+            return None
+
+        match = re.search(r'web search(?: for| about)?\s+"([^"]+)"', goal, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+
+        match = re.search(r'web search(?: for| about)?\s+(.+)', goal, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+
+        match = re.search(r'search(?: for| about)?\s+"([^"]+)"', goal, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+
+        match = re.search(r'search(?: for| about)?\s+(.+)', goal, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+
+        return None
+
     async def plan(self, goal: str, context: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(goal, str) or not goal.strip():
             raise ValueError("goal must be a non-empty string")
@@ -157,26 +205,26 @@ class PlannerAgent:
                         "sub_queries": plan_obj.sub_queries,
                     }
         except Exception as e:
-            # If a provider is explicitly configured, do not silently fall back.
             try:
                 from app.settings import settings
-
                 provider = settings.llm_provider.lower()
             except Exception:
                 provider = ""
 
             if provider in {"openrouter", "nvidia"}:
-                raise
-
-            logger.warning("Planner LLM failed; using fallback. err=%s", e)
+                logger.warning("Planner LLM failed; falling back to deterministic plan. err=%s", e)
+            else:
+                logger.warning("Planner LLM failed; using fallback. err=%s", e)
 
         # If provider isn't configured (or LLM errors in non-LLM mode), continue with fallback
 
 
         # ---- Fallback deterministic mode ----
 
-        topics = _extract_topics(goal)
+        file_path = self._extract_local_file_path(goal)
+        search_query = self._extract_search_query(goal)
 
+        topics = _extract_topics(goal)
         steps: list[str] = [
             "Clarify intent and constraints from the goal",
             "Identify required facts and likely data sources",
@@ -186,7 +234,19 @@ class PlannerAgent:
         ]
 
         sub_queries: list[str]
-        if topics:
+        if file_path:
+            ext = file_path.split('?')[0].split('#')[0].rsplit('.', 1)[-1].lower()
+            if ext in {'pdf', 'docx', 'txt'}:
+                sub_queries = [f"read local document {file_path}"]
+            elif ext in {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'tiff'}:
+                sub_queries = [f"perform OCR and detail extraction on image {file_path}"]
+            else:
+                sub_queries = [f"read local file {file_path}"]
+        elif search_query:
+            sub_queries = [search_query]
+        elif any(k in goal.lower() for k in ["web search", "search", "find", "lookup", "browse"]):
+            sub_queries = [goal.strip()]
+        elif topics:
             sub_queries = [f"latest information about {t}" for t in topics]
         else:
             sub_queries = ["key facts and definitions relevant to the goal"]

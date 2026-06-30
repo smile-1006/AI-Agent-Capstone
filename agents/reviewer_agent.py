@@ -112,15 +112,11 @@ class ReviewerAgent:
         except Exception as e:
             try:
                 from app.settings import settings
-
                 provider = settings.llm_provider.lower()
             except Exception:
                 provider = ""
 
-            if provider in {"openrouter", "nvidia"}:
-                raise
-
-            logger.warning("Reviewer LLM failed; using fallback. err=%s", e)
+            logger.warning("Reviewer LLM failed; falling back to deterministic final answer. err=%s", e)
 
         final_text = {
 
