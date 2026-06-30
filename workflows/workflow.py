@@ -90,6 +90,7 @@ class WorkflowCoordinator:
         context.setdefault("request_id", workflow_input.request_id)
 
         route = await self._router.route(workflow_input.goal, context=context)
+        context["route"] = route
         plan = await self._planner.plan(workflow_input.goal, context=context)
         research = await self._researcher.research(plan=plan, context=context)
         draft = await self._executor.execute(plan=plan, research=research, context=context)
