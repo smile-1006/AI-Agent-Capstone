@@ -43,6 +43,11 @@ class Settings(BaseSettings):
 
     # External tool endpoints (optional)
     web_search_api_url: str = ""
+    # Local calculator command. If set, MCP will invoke this command to
+    # evaluate expressions. The string may contain `{}` which will be
+    # formatted with the expression, or be a command prefix that accepts
+    # the expression as the last argument.
+    local_calculator_cmd: str = ""
     weather_api_url: str = ""
     weather_provider: str = "auto"
 

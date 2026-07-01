@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import math
 import os
+import time
+import asyncio
+import shlex
 from typing import Any, Awaitable, Callable
 
 
@@ -29,6 +32,289 @@ async def tool_calculator(ctx: Any, expression: str) -> dict[str, Any]:
     allowed = set("0123456789+-*/()., ")
     if any(ch not in allowed for ch in expression):
         raise ValueError("expression contains unsupported characters")
+
+    # If a local calculator command is configured, try delegating to it.
+    events: list[str] = []
+    try:
+        from app.settings import settings
+
+        cmd_template = (getattr(settings, "local_calculator_cmd", "") or "").strip()
+        if cmd_template:
+            try:
+                # Special-case: built-in Windows Calculator automation mode
+                if os.name == "nt" and cmd_template.lower() in {"windows_calc", "windows-calculator", "calc"}:
+                    try:
+                        events.append("connecting to windows calculator")
+                        # Attempt to control the Windows Calculator via UI Automation
+                        from pywinauto import Application
+                        from pywinauto.keyboard import send_keys
+
+                        app = Application(backend="uia")
+                        # Start or connect to Calculator
+                        try:
+                            proc = app.start("calc.exe")
+                            dlg = app.window(title_re="Calculator")
+                        except Exception:
+                            app.connect(path="Calculator.exe")
+                            dlg = app.window(title_re="Calculator")
+
+                        dlg.wait("exists enabled visible ready", timeout=5)
+                        events.append("connected")
+
+                        # Bring Calculator to the foreground and clear previous input
+                        try:
+                            dlg.set_focus()
+                        except Exception:
+                            pass
+
+                        # Try clicking common clear buttons before sending input
+                        for btn_name in ("Clear", "Clear entry", "AC", "C"):
+                            try:
+                                btn = dlg.child_window(title=btn_name, control_type="Button")
+                                if btn.exists():
+                                    try:
+                                        btn.click_input()
+                                        break
+                                    except Exception:
+                                        try:
+                                            btn.invoke()
+                                            break
+                                        except Exception:
+                                            pass
+                            except Exception:
+                                continue
+
+                        events.append("sending input")
+                        # Fallback: send Escape to clear
+                        try:
+                            send_keys("{ESC}")
+                        except Exception:
+                            pass
+
+                        # Try clicking calculator buttons for each token instead of typing
+                        try:
+                            import time
+
+                            # Mapping of characters to likely Calculator button titles (try several variants)
+                            char_to_titles = {
+                                "0": ["Zero", "0"],
+                                "1": ["One", "1"],
+                                "2": ["Two", "2"],
+                                "3": ["Three", "3"],
+                                "4": ["Four", "4"],
+                                "5": ["Five", "5"],
+                                "6": ["Six", "6"],
+                                "7": ["Seven", "7"],
+                                "8": ["Eight", "8"],
+                                "9": ["Nine", "9"],
+                                ".": ["Decimal separator", "Decimal Separator", "Decimal", "."],
+                                "+": ["Plus", "Add", "+"],
+                                "-": ["Minus", "Subtract", "-"],
+                                "*": ["Multiply by", "Multiply", "Times", "×", "*"],
+                                "/": ["Divide by", "Divide", "/", "÷"],
+                                "(": ["Open parenthesis", "(", "Left parenthesis"],
+                                ")": ["Close parenthesis", ")", "Right parenthesis"],
+                            }
+
+                            # Prefer automation_id-based clicks for the Microsoft Calculator
+                            char_to_auto = {
+                                "0": "num0Button",
+                                "1": "num1Button",
+                                "2": "num2Button",
+                                "3": "num3Button",
+                                "4": "num4Button",
+                                "5": "num5Button",
+                                "6": "num6Button",
+                                "7": "num7Button",
+                                "8": "num8Button",
+                                "9": "num9Button",
+                                ".": "decimalSeparatorButton",
+                                "+": "plusButton",
+                                "-": "minusButton",
+                                "*": "multiplyButton",
+                                "/": "divideButton",
+                                "=": "equalButton",
+                                "(": None,
+                                ")": None,
+                            }
+
+                            def click_button_for_char(ch: str) -> bool:
+                                # try automation_id first
+                                aid = char_to_auto.get(ch)
+                                if aid:
+                                    try:
+                                        btn = dlg.child_window(auto_id=aid, control_type="Button")
+                                        if btn.exists():
+                                            try:
+                                                btn.click_input()
+                                                return True
+                                            except Exception:
+                                                try:
+                                                    btn.invoke()
+                                                    return True
+                                                except Exception:
+                                                    pass
+                                    except Exception:
+                                        pass
+
+                                # fallback to title matching (older/alternate Calculator)
+                                titles = char_to_titles.get(ch, [ch])
+                                for t in titles:
+                                    try:
+                                        btn = dlg.child_window(title=t, control_type="Button")
+                                        if btn.exists():
+                                            try:
+                                                btn.click_input()
+                                                return True
+                                            except Exception:
+                                                try:
+                                                    btn.invoke()
+                                                    return True
+                                                except Exception:
+                                                    continue
+                                    except Exception:
+                                        continue
+                                return False
+
+                            clicked_all = True
+                            for ch in expression:
+                                if ch.isspace():
+                                    continue
+                                ok = click_button_for_char(ch)
+                                if not ok:
+                                    # If any character can't be clicked reliably, fall back to send_keys
+                                    clicked_all = False
+                                    break
+                                time.sleep(0.05)
+
+                            events.append("pressed_buttons")
+
+                            if not clicked_all:
+                                # fallback to typing whole expression
+                                send_keys(expression, with_spaces=True)
+
+                        except Exception:
+                            # fallback to typing if any error
+                            try:
+                                send_keys(expression, with_spaces=True)
+                            except Exception:
+                                pass
+
+                        events.append("calculating")
+                        # Try clicking Equals button, else press Enter
+                        for eq_title in ("Equals", "=", "Equals", "Calculate"):
+                            try:
+                                eq_btn = dlg.child_window(title=eq_title, control_type="Button")
+                                if eq_btn.exists():
+                                    try:
+                                        eq_btn.click_input()
+                                        break
+                                    except Exception:
+                                        try:
+                                            eq_btn.invoke()
+                                            break
+                                        except Exception:
+                                            continue
+                            except Exception:
+                                continue
+
+                        try:
+                            send_keys("{ENTER}")
+                        except Exception:
+                            pass
+
+                        # Read the result from UIAutomation element, waiting for the display to settle
+                        time.sleep(0.35)
+                        # Read the result from UIAutomation element, waiting for the display to settle.
+                        old_text = ''
+                        try:
+                            old_el = dlg.child_window(auto_id="CalculatorResults", control_type="Text")
+                            old_text = old_el.window_text().strip()
+                        except Exception:
+                            try:
+                                old_text = dlg.window_text().strip()
+                            except Exception:
+                                old_text = ''
+
+                        result_text = old_text
+                        stable_count = 0
+                        for _ in range(30):
+                            time.sleep(0.15)
+                            try:
+                                el = dlg.child_window(auto_id="CalculatorResults", control_type="Text")
+                                new_text = el.window_text().strip()
+                            except Exception:
+                                try:
+                                    new_text = dlg.window_text().strip()
+                                except Exception:
+                                    new_text = result_text
+
+                            if new_text != result_text and new_text:
+                                result_text = new_text
+                                stable_count = 0
+                            else:
+                                stable_count += 1
+
+                            if stable_count >= 2 and result_text:
+                                break
+
+                        events.append("reading_result")
+                        # Calculator results often have a prefix like "Display is  42"
+                        import re
+
+                        # Attempt to close the Calculator window once the result is captured.
+                        try:
+                            dlg.close()
+                            events.append("closed_calculator")
+                        except Exception:
+                            pass
+
+                        m = re.search(r"(-?[0-9][0-9,\.eE+-]*)", result_text.replace(',', ''))
+                        if m:
+                            num_text = m.group(1)
+                            try:
+                                parsed = float(num_text) if ("." in num_text or "e" in num_text.lower()) else int(num_text)
+                                return {"expression": expression, "result": parsed, "source": "windows_calculator", "events": events}
+                            except Exception:
+                                return {"expression": expression, "result": result_text, "source": "windows_calculator", "events": events}
+                        return {"expression": expression, "result": result_text, "source": "windows_calculator", "events": events}
+                    except Exception:
+                        # If anything goes wrong with UI automation, fall back to other methods
+                        pass
+
+                if "{}" in cmd_template:
+                    # format the template into a full shell command
+                    cmd = cmd_template.format(expression)
+                    proc = await asyncio.create_subprocess_shell(
+                        cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                    )
+                else:
+                    # treat the template as a command prefix and append the expression
+                    parts = shlex.split(cmd_template)
+                    parts.append(expression)
+                    proc = await asyncio.create_subprocess_exec(
+                        *parts, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                    )
+                out, err = await proc.communicate()
+                out_text = (out or b"").decode("utf-8", errors="ignore").strip()
+                if out_text:
+                    # try to parse numeric result, otherwise return raw text
+                    try:
+                        if "." in out_text or "e" in out_text.lower():
+                            parsed = float(out_text)
+                        else:
+                            parsed = int(out_text)
+                    except Exception:
+                        try:
+                            parsed = float(out_text)
+                        except Exception:
+                            return {"expression": expression, "result": out_text, "source": "local_calculator"}
+                    return {"expression": expression, "result": parsed, "source": "local_calculator"}
+            except Exception:
+                # Fall through to builtin evaluator on any local-call failure
+                pass
+    except Exception:
+        pass
 
     # Evaluate using Python's eval with stripped builtins.
     # This is still risky for complex payloads, so we pre-filter characters.
